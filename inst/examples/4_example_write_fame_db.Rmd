@@ -1,0 +1,78 @@
+---
+title: "Write to a FAME database from R"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment='')
+```
+
+```{r}
+library(qoma.smuggler)
+library(rhli)
+
+if(!open_hli())knitr::knit_exit()
+```
+
+Use FAME HLI monthly frequency constant `HMONTH` and FAME date literals "18m1" and "18m2" --- 
+abbreviations for the first and twelfth month of the year 2018.
+```{r}
+rng <- to_fame_range(HMONTH,"18m1","18m12")
+rng
+```
+Convert a FAME date range `rng` to a _lubridate_ index.
+```{r}
+tbl <- to_lubridate_index(rng)
+tbl
+```
+Generate some normal variates in R, add to the tibble as column 'x'.
+```{r}
+nobs <- rng[3]-rng[2]+1
+tbl['x'] <- rnorm(nobs)
+tbl
+```
+Setup a _qoma.smuggler_ `List` structure to hold the data.  
+
+See what it looks like with the `print_catalog()` 
+function.
+```{r}
+mydb <- List() # mutable list
+entry <- newEntry( # entry with data and FAME metadata
+  tbl$x,
+  desc = "N(0,1)",
+  docu = "R generated N(0,1) time series.",
+  range = rng,
+  obse = rhli::HOBSUM
+  )
+mydb$put('x',entry)
+print_catalog(mydb)
+mydb$get('x')
+```
+Write the contents of the _qoma.smuggler_ `List` to a FAME database.
+```{r}
+dbfile <- file.path(tempdir(),"tmp.db")
+write_fame(dbfile,mydb)
+```
+Use 4GL to peek at data in FAME.
+```{r}
+txtfile <- file.path(tempdir(),"tmp.txt")
+cmd <- rhli::Character(paste(
+  "open<acc read>\"",dbfile,"\" as db;",  
+  "output<acc over>\"",txtfile,"\";",
+  "cata db;",  
+  "whats x;",  
+  "disp x;",  
+  "output terminal;",
+  "close db;",
+  sep=""))
+rhli::cfmfame(rhli::Integer(-1), cmd)
+cat(readLines(txtfile), sep = '\n')
+```
+```{r}
+close_hli()
+
+file.remove(dbfile)
+file.remove(txtfile)
+```
